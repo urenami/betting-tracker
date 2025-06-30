@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Cheat Sheet - Smart Betting Tracker</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      text-align: center;
+    }
+    .game {
+      background: #fff;
+      margin-bottom: 15px;
+      padding: 15px;
+      border-radius: 10px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    .matchup {
+      font-size: 1.2em;
+      font-weight: bold;
+    }
+    .sport {
+      font-size: 0.9em;
+      color: #888;
+    }
+    .odds {
+      margin-top: 10px;
+      padding-left: 10px;
+    }
+    .odds li {
+      list-style: none;
+      margin-bottom: 4px;
+    }
+  </style>
+</head>
+<body>
+    <h1>Smart Betting Cheat Sheet</h1>
+  
+    <label for="sportSelect">Filter by Sport:</label>
+    <select id="sportSelect">
+      <option value="All">All Sports</option>
+      <option value="MLB">MLB</option>
+      <option value="NBA">NBA</option>
+      <option value="NFL">NFL</option>
+      <option value="College Football">College Football</option>
+      <option value="NHL">NHL</option>
+    </select>
+  
+    <div id="cheatsheet" style="margin-top: 20px;"></div>
+  
+    <script>
+      async function loadData(sportFilter = 'All') {
+        const res = await fetch('/cheatsheet');
+        const data = await res.json();
+        const container = document.getElementById('cheatsheet');
+        container.innerHTML = '';
+  
+        const filtered = sportFilter === 'All'
+          ? data
+          : data.filter(game => game.sport === sportFilter);
+  
+        if (filtered.length === 0) {
+          container.innerHTML = '<p>No games found for this sport.</p>';
+          return;
+        }
+  
+        filtered.forEach(game => {
+          const div = document.createElement('div');
+          div.className = 'game';
+          div.innerHTML = `
+            <div class="matchup">${game.matchup}</div>
+            <div class="sport">${game.sport} - ${new Date(game.start_time).toLocaleString()}</div>
+            <ul class="odds">
+              ${game.odds.map(o => `<li><strong>${o.team}</strong>: ${o.odds}</li>`).join('')}
+            </ul>
+          `;
+          container.appendChild(div);
+        });
+      }
+  
+      document.getElementById('sportSelect').addEventListener('change', (e) => {
+        loadData(e.target.value);
+      });
+  
+      loadData();
+    </script>
+  </body>
+  
+</html>
