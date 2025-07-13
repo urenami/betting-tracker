@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Betting Tracker</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 40px;
+        background: #f5f5f5;
+      }
+
+      h1,
+      h2 {
+        color: #333;
+      }
+
+      form {
+        background: #fff;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        max-width: 400px;
+      }
+
+      form label {
+        display: block;
+        margin-bottom: 10px;
+      }
+
+      input,
+      select {
+        width: 100%;
+        padding: 8px;
+        margin-top: 4px;
+        box-sizing: border-box;
+      }
+
+      button {
+        background: #007bff;
+        color: #fff;
+        border: none;
+        padding: 10px 15px;
+        cursor: pointer;
+        border-radius: 4px;
+      }
+
+      button:hover {
+        background: #0056b3;
+      }
+
+      #picksList {
+        margin-top: 30px;
+        list-style: none;
+        padding: 0;
+        max-width: 400px;
+      }
+
+      #picksList li {
+        background: #fff;
+        margin-bottom: 10px;
+        padding: 10px;
+        border-left: 5px solid #007bff;
+        box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>Betting Tracker</h1>
+
+    <!-- Form to add a new pick -->
+    <form id="pickForm">
+      <label
+        >Date:
+        <input type="date" id="date" required /> </label
+      ><br /><br />
+
+      <label
+        >Sport:
+        <input type="text" id="sport" required /> </label
+      ><br /><br />
+
+      <label
+        >Matchup:
+        <input type="text" id="matchup" required /> </label
+      ><br /><br />
+
+      <label
+        >Odds:
+        <input type="number" id="odds" step="0.01" required /> </label
+      ><br /><br />
+
+      <label
+        >Stake:
+        <input type="number" id="stake" step="0.01" required /> </label
+      ><br /><br />
+
+      <label
+        >Result:
+        <select id="result">
+          <option value="pending">Pending</option>
+          <option value="win">Win</option>
+          <option value="loss">Loss</option>
+        </select> </label
+      ><br /><br />
+
+      <button type="submit">Save Pick</button>
+    </form>
+
+    <!-- List of saved picks -->
+    <h2>Saved Picks</h2>
+    <ul id="picksList"></ul>
+
+    <script>
+      // Get the form element
+      const form = document.getElementById("pickForm");
+
+      // Handle form submit
+      form.addEventListener("submit", async function (e) {
+        e.preventDefault();
+
+        // Build pick object
+        const pickData = {
+          date: document.getElementById("date").value,
+          sport: document.getElementById("sport").value,
+          matchup: document.getElementById("matchup").value,
+          odds: parseFloat(document.getElementById("odds").value),
+          stake: parseFloat(document.getElementById("stake").value),
+          result: document.getElementById("result").value,
+        };
+
+        // Send POST request to save pick
+        const response = await fetch("/picks/save-pick", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(pickData),
+        });
+
+        const data = await response.json();
+        alert(data.message);
+
+        form.reset();
+        loadPicks(); // Refresh list
+      });
+
+      // Fetch and display all picks
+      async function loadPicks() {
+        const res = await fetch("/picks/get-picks");
+        const picks = await res.json();
+
+        const list = document.getElementById("picksList");
+        list.innerHTML = "";
+
+        picks.forEach((pick) => {
+          const li = document.createElement("li");
+          li.textContent = `${pick.date} | ${pick.sport} | ${pick.matchup} | Odds: ${pick.odds} | Stake: ${pick.stake} | Result: ${pick.result}`;
+          list.appendChild(li);
+        });
+      }
+
+      // Load picks on page load
+      loadPicks();
+    </script>
+  </body>
+</html>

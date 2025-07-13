@@ -6,5 +6,13 @@
     "odds": 1.8,
     "stake": 50,
     "result": "win"
+  },
+  {
+    "date": "2025-07-12",
+    "sport": "MLB",
+    "matchup": "mets vs royals",
+    "odds": -0.06,
+    "stake": 2,
+    "result": "pending"
   }
 ]
