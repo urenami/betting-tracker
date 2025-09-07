@@ -175,4 +175,36 @@ router.get("/stats", (req, res) => {
 });
 
 // Export router
+
+// GET /picks/export.csv  -> download all picks as CSV
+router.get("/export.csv", (req, res) => {
+  const filePath = path.join(__dirname, "../data/picks.json");
+
+  let picks = [];
+  if (fs.existsSync(filePath)) {
+    try {
+      picks = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    } catch {
+      picks = [];
+    }
+  }
+
+  const header = ["id", "date", "sport", "matchup", "odds", "stake", "result"];
+  const rows = [header.join(",")];
+
+  for (const p of picks) {
+    const row = header.map((k) => {
+      const s = String(p[k] ?? "");
+      // escape quotes/commas/newlines for CSV
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    });
+    rows.push(row.join(","));
+  }
+
+  const csv = rows.join("\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="picks.csv"');
+  res.send(csv);
+});
+
 module.exports = router;
