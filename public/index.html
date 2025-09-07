@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <title>Betting Tracker</title>
     <style>
+      /* === Page Styles === */
       body {
         font-family: Arial, sans-serif;
         margin: 40px;
@@ -69,49 +70,55 @@
   <body>
     <h1>Betting Tracker</h1>
 
-    <!-- Form to add a new pick -->
+    <!-- === Form to Add a Pick === -->
     <form id="pickForm">
-      <label>Date: <input type="date" id="date" required /> </label><br /><br />
-
-      <label>Sport: <input type="text" id="sport" required /> </label
-      ><br /><br />
-
-      <label>Matchup: <input type="text" id="matchup" required /> </label
-      ><br /><br />
-
-      <label
-        >Odds: <input type="number" id="odds" step="0.01" required /> </label
-      ><br /><br />
-
-      <label
-        >Stake: <input type="number" id="stake" step="0.01" required /> </label
-      ><br /><br />
-
-      <label
-        >Result:
+      <label>Date: <input type="date" id="date" required /></label><br /><br />
+      <label>Sport: <input type="text" id="sport" required /></label><br /><br />
+      <label>Matchup: <input type="text" id="matchup" required /></label><br /><br />
+      <label>Odds: <input type="number" id="odds" step="0.01" required /></label><br /><br />
+      <label>Stake: <input type="number" id="stake" step="0.01" required /></label><br /><br />
+      <label>
+        Result:
         <select id="result">
           <option value="pending">Pending</option>
           <option value="win">Win</option>
           <option value="loss">Loss</option>
-        </select> </label
-      ><br /><br />
-
+        </select>
+      </label><br /><br />
       <button type="submit">Save Pick</button>
     </form>
 
-    <!-- List of saved picks -->
     <h2>Saved Picks</h2>
+
+    <!-- === Stats Box (updates live) === -->
+    <div
+      id="statsBox"
+      style="
+        max-width: 400px;
+        background: #fff;
+        padding: 12px;
+        border-left: 5px solid #28a745;
+        box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
+        margin-bottom: 12px;
+        border-radius: 6px;
+      "
+    >
+      <strong>Stats</strong>
+      <div id="statsContent" style="margin-top: 6px; color: #333">
+        Loading…
+      </div>
+    </div>
+
+    <!-- === Picks List === -->
     <ul id="picksList"></ul>
 
     <script>
-      // Get the form element
+      // === Handle Form Submission ===
       const form = document.getElementById("pickForm");
-
-      // Handle form submit
       form.addEventListener("submit", async function (e) {
-        e.preventDefault(); // Prevent default page reload on submit
+        e.preventDefault(); // prevent page reload
 
-        // Build pick object from form inputs
+        // Build pick object from form
         const pickData = {
           date: document.getElementById("date").value,
           sport: document.getElementById("sport").value,
@@ -121,7 +128,7 @@
           result: document.getElementById("result").value,
         };
 
-        // Send POST request to save the pick
+        // Send pick to backend
         const response = await fetch("/picks/save-pick", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -129,42 +136,97 @@
         });
 
         const data = await response.json();
-        alert(data.message); // Confirm save
+        alert(data.message);
 
-        form.reset(); // Clear form
-        loadPicks(); // Refresh the picks list after saving
+        form.reset(); // clear form
+        loadPicks(); // refresh list
+        loadStats(); // refresh stats
       });
 
-      // Fetch and display all picks with Delete buttons
+      // === Function: Load Stats from Backend ===
+      async function loadStats() {
+        try {
+          const res = await fetch("/picks/stats");
+          const s = await res.json();
+
+          const fmt = (n) => (Number.isFinite(n) ? Number(n).toFixed(2) : "0.00");
+          const statsHTML = `
+            <div>Total Picks: <strong>${s.total}</strong></div>
+            <div>Wins: <strong>${s.wins}</strong> |
+                 Losses: <strong>${s.losses}</strong> |
+                 Pending: <strong>${s.pending}</strong></div>
+            <div>Total Staked: <strong>$${fmt(s.totalStaked)}</strong></div>
+            <div>Settled Staked: <strong>$${fmt(s.settledStaked)}</strong></div>
+            <div>Profit: <strong>${s.profit >= 0 ? "+" : "-"}$${fmt(Math.abs(s.profit))}</strong></div>
+            <div>ROI: <strong>${fmt(s.roiPct)}%</strong></div>
+          `;
+          document.getElementById("statsContent").innerHTML = statsHTML;
+        } catch (e) {
+          document.getElementById("statsContent").textContent =
+            "Failed to load stats.";
+        }
+      }
+
+      // === Function: Load Picks from Backend ===
       async function loadPicks() {
         const res = await fetch("/picks/get-picks");
         const picks = await res.json();
 
         const list = document.getElementById("picksList");
-        list.innerHTML = ""; // Clear old list
+        list.innerHTML = ""; // clear old list
 
         picks.forEach((pick) => {
           const li = document.createElement("li");
           li.textContent = `${pick.date} | ${pick.sport} | ${pick.matchup} | Odds: ${pick.odds} | Stake: ${pick.stake} | Result: ${pick.result}`;
 
-          // Add Delete button for this pick
+          // --- Result Buttons (Win / Loss / Pending) ---
+          ["win", "loss", "pending"].forEach((res) => {
+            const btn = document.createElement("button");
+            btn.textContent = res.charAt(0).toUpperCase() + res.slice(1);
+            btn.style.marginLeft = "6px";
+            btn.style.background =
+              res === "win"
+                ? "#28a745"
+                : res === "loss"
+                ? "#dc3545"
+                : "#ffc107";
+            btn.style.color = "#fff";
+            btn.style.border = "none";
+            btn.style.padding = "5px 8px";
+            btn.style.cursor = "pointer";
+            btn.style.borderRadius = "4px";
+
+            // When clicked, update result on backend
+            btn.addEventListener("click", async () => {
+              await fetch(`/picks/${pick.id}/result`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ result: res }),
+              });
+              loadPicks(); // refresh list
+              loadStats(); // refresh stats
+            });
+
+            li.appendChild(btn);
+          });
+
+          // --- Delete Button ---
           const delBtn = document.createElement("button");
           delBtn.textContent = "Delete";
           delBtn.style.marginLeft = "10px";
-          delBtn.style.background = "#dc3545";
+          delBtn.style.background = "#6c757d";
           delBtn.style.color = "#fff";
           delBtn.style.border = "none";
           delBtn.style.padding = "5px 10px";
           delBtn.style.cursor = "pointer";
           delBtn.style.borderRadius = "4px";
 
-          // When clicked, send DELETE request to remove the pick
+          // When clicked, delete pick on backend
           delBtn.addEventListener("click", async () => {
             if (confirm("Are you sure you want to delete this pick?")) {
-              await fetch(`/picks/delete-pick/${pick.id}`, {
-                method: "DELETE",
-              });
-              loadPicks(); // Refresh list after delete
+              await fetch(`/picks/delete-pick/${pick.id}`, { method: "DELETE" });
+              loadPicks();
+              loadStats();
             }
           });
 
@@ -173,8 +235,9 @@
         });
       }
 
-      // Load picks when page first loads
+      // === Initial Load (when page first opens) ===
       loadPicks();
+      loadStats();
     </script>
   </body>
 </html>
