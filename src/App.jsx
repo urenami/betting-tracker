@@ -54,17 +54,15 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors">
-      {/* Header (sticky, not fixed) */}
+      {/* Header */}
       <header className="sticky top-0 z-50 border-b border-gray-300/70 dark:border-gray-700/70 bg-white/90 dark:bg-gray-800/90 backdrop-blur">
         <div className="relative max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-4 md:py-5 flex items-center justify-between">
-          {/* Title */}
           <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-gray-900 dark:text-white">
             <span className="bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">
               Betting Tracker
             </span>
           </h1>
 
-          {/* Desktop Nav */}
           <nav className="hidden md:flex items-center gap-6">
             {["Dashboard", "My Picks", "Parlay Builder"].map((item) => (
               <a
@@ -77,7 +75,6 @@ export default function App() {
             ))}
           </nav>
 
-          {/* Mobile Toggle */}
           <button
             className="md:hidden text-gray-700 dark:text-gray-200"
             onClick={() => setMenuOpen((v) => !v)}
@@ -86,7 +83,6 @@ export default function App() {
             {menuOpen ? <FiX size={24} /> : <FiMenu size={24} />}
           </button>
 
-          {/* Mobile Dropdown (anchored below header) */}
           {menuOpen && (
             <div className="absolute left-0 right-0 top-full md:hidden bg-white/95 dark:bg-gray-800/95 border-t border-gray-200 dark:border-gray-700 shadow-md">
               <div className="px-4 py-3 space-y-2">
@@ -105,7 +101,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main */}
+      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12 pt-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {/* Upcoming Games */}
@@ -114,7 +110,6 @@ export default function App() {
               Upcoming Games
             </h2>
 
-            {/* Sport Filter */}
             <div className="flex flex-wrap gap-3 mb-6 mt-4">
               {sports.map(({ key, label }) => (
                 <button
@@ -131,7 +126,6 @@ export default function App() {
               ))}
             </div>
 
-            {/* Games List */}
             {loading ? (
               <p className="text-gray-600 dark:text-gray-300">
                 Loading {sports.find((s) => s.key === sport)?.label} odds...
@@ -200,6 +194,39 @@ export default function App() {
               </ul>
             )}
           </aside>
+
+          {/* Parlay Calculator */}
+          <div className="rounded-2xl border border-white/30 dark:border-gray-700 bg-white/60 dark:bg-gray-800/50 backdrop-blur p-6 shadow-lg hover:shadow-xl transition-all">
+            <h2 className="text-2xl font-bold mb-6 text-gray-900 dark:text-gray-100 border-b border-gray-300 dark:border-gray-700 pb-3">
+              Parlay Calculator
+            </h2>
+            <p className="text-gray-600 dark:text-gray-300 text-sm mb-4">
+              Enter your wager to estimate potential payout.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Wager Amount ($)
+                </label>
+                <input
+                  type="number"
+                  className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white/80 dark:bg-gray-700/80 text-gray-900 dark:text-gray-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="Enter amount"
+                />
+              </div>
+              <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                <p className="text-gray-700 dark:text-gray-200">
+                  Total Picks: <span className="font-semibold">{picks.length}</span>
+                </p>
+                <p className="text-gray-700 dark:text-gray-200">
+                  Combined Odds: <span className="font-semibold">–</span>
+                </p>
+                <p className="text-gray-900 dark:text-white text-lg font-bold mt-3">
+                  Estimated Payout: –
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </main>
     </div>
