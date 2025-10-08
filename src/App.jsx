@@ -10,6 +10,9 @@ export default function App() {
     const saved = localStorage.getItem("myPicks");
     return saved ? JSON.parse(saved) : [];
   });
+  const [wager, setWager] = useState(10);
+  const [combinedOdds, setCombinedOdds] = useState(0);
+  const [payout, setPayout] = useState(0);
 
   const sports = [
     { key: "baseball_mlb", label: "MLB" },
@@ -18,6 +21,7 @@ export default function App() {
     { key: "icehockey_nhl", label: "NHL" },
   ];
 
+  // Fetch Odds from API
   useEffect(() => {
     const fetchOdds = async () => {
       setLoading(true);
@@ -39,18 +43,37 @@ export default function App() {
     fetchOdds();
   }, [sport]);
 
+  // Save Picks to Local Storage
   useEffect(() => {
     localStorage.setItem("myPicks", JSON.stringify(picks));
   }, [picks]);
 
-  const addPick = (game) => {
-    if (picks.some((p) => p.id === game.id)) return;
-    setPicks([...picks, game]);
+  // Add Pick (team-based)
+  const addPick = (pick) => {
+    if (picks.some((p) => p.id === pick.id && p.team === pick.team)) return;
+    setPicks([...picks, pick]);
   };
 
+  // Remove Pick
   const removePick = (id) => {
     setPicks(picks.filter((p) => p.id !== id));
   };
+
+  // Calculate Parlay Odds & Payout
+  useEffect(() => {
+    if (picks.length === 0) {
+      setCombinedOdds(0);
+      setPayout(0);
+      return;
+    }
+
+    const oddsArray = picks.map((p) => p.decimalOdds || 1);
+    const totalOdds = oddsArray.reduce((acc, odd) => acc * odd, 1);
+    const estimated = wager * totalOdds;
+
+    setCombinedOdds(totalOdds);
+    setPayout(estimated);
+  }, [picks, wager]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors">
@@ -63,6 +86,7 @@ export default function App() {
             </span>
           </h1>
 
+          {/* Desktop Nav */}
           <nav className="hidden md:flex items-center gap-6">
             {["Dashboard", "My Picks", "Parlay Builder"].map((item) => (
               <a
@@ -75,6 +99,7 @@ export default function App() {
             ))}
           </nav>
 
+          {/* Mobile Toggle */}
           <button
             className="md:hidden text-gray-700 dark:text-gray-200"
             onClick={() => setMenuOpen((v) => !v)}
@@ -83,6 +108,7 @@ export default function App() {
             {menuOpen ? <FiX size={24} /> : <FiMenu size={24} />}
           </button>
 
+          {/* Mobile Dropdown */}
           {menuOpen && (
             <div className="absolute left-0 right-0 top-full md:hidden bg-white/95 dark:bg-gray-800/95 border-t border-gray-200 dark:border-gray-700 shadow-md">
               <div className="px-4 py-3 space-y-2">
@@ -101,7 +127,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* Main */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12 pt-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {/* Upcoming Games */}
@@ -110,6 +136,7 @@ export default function App() {
               Upcoming Games
             </h2>
 
+            {/* Sport Filter */}
             <div className="flex flex-wrap gap-3 mb-6 mt-4">
               {sports.map(({ key, label }) => (
                 <button
@@ -126,6 +153,7 @@ export default function App() {
               ))}
             </div>
 
+            {/* Games List */}
             {loading ? (
               <p className="text-gray-600 dark:text-gray-300">
                 Loading {sports.find((s) => s.key === sport)?.label} odds...
@@ -141,22 +169,62 @@ export default function App() {
                   games.map((game) => (
                     <div
                       key={game.id}
-                      className="p-4 bg-white/70 dark:bg-gray-700/70 rounded-xl flex justify-between items-center shadow hover:shadow-lg transition-transform hover:scale-[1.02]"
+                      className="p-4 bg-white/70 dark:bg-gray-700/70 rounded-xl shadow hover:shadow-lg transition-transform hover:scale-[1.02]"
                     >
-                      <div>
-                        <p className="font-semibold text-gray-900 dark:text-gray-100">
-                          {game.home_team} vs {game.away_team}
-                        </p>
-                        <p className="text-sm text-gray-600 dark:text-gray-300">
-                          {game.sport_title}
-                        </p>
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="font-semibold text-gray-900 dark:text-gray-100">
+                            {game.home_team} vs {game.away_team}
+                          </p>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">
+                            {game.sport_title}
+                          </p>
+                        </div>
+
+                        {/* Add Pick Buttons for Home/Away */}
+                        <div className="flex gap-3">
+                          {["home_team", "away_team"].map((teamKey) => {
+                            const teamName = game[teamKey];
+                            const market =
+                              game.bookmakers?.[0]?.markets?.[0];
+                            const outcome = market?.outcomes?.find(
+                              (o) => o.name === teamName
+                            );
+                            const odds = outcome?.price;
+                            const decimalOdds =
+                              odds > 0
+                                ? odds / 100 + 1
+                                : 100 / Math.abs(odds) + 1;
+
+                            return (
+                              <button
+                                key={teamKey}
+                                onClick={() =>
+                                  addPick({
+                                    id: `${game.id}-${teamKey}`,
+                                    team: teamName,
+                                    americanOdds: odds,
+                                    decimalOdds,
+                                    sport: game.sport_title,
+                                  })
+                                }
+                                className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-transform hover:scale-105 active:scale-95 text-sm font-medium"
+                              >
+                                {teamName}{" "}
+                                {odds ? (
+                                  <span className="text-xs text-gray-200 ml-1">
+                                    ({odds > 0 ? `+${odds}` : odds})
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-gray-300 ml-1">
+                                    N/A
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <button
-                        onClick={() => addPick(game)}
-                        className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-transform hover:scale-105 active:scale-95"
-                      >
-                        Add Pick
-                      </button>
                     </div>
                   ))
                 )}
@@ -164,14 +232,14 @@ export default function App() {
             )}
           </section>
 
-          {/* My Picks */}
+          {/* Sidebar: My Picks + Calculator */}
           <aside className="rounded-2xl border border-white/30 dark:border-gray-700 bg-white/60 dark:bg-gray-800/50 backdrop-blur p-6 shadow-lg hover:shadow-xl transition-all">
             <h2 className="text-2xl font-bold mb-6 text-gray-900 dark:text-gray-100 border-b border-gray-300 dark:border-gray-700 pb-3">
               My Picks
             </h2>
             {picks.length === 0 ? (
               <p className="text-gray-600 dark:text-gray-300">
-                No picks yet — add one from the list!
+                No picks yet — select a team from the list!
               </p>
             ) : (
               <ul className="space-y-3">
@@ -181,7 +249,13 @@ export default function App() {
                     className="flex justify-between items-center bg-white/70 dark:bg-gray-700/70 px-3 py-2 rounded-lg shadow hover:shadow-lg transition-transform hover:scale-[1.02]"
                   >
                     <span className="text-gray-900 dark:text-gray-100 text-sm font-medium">
-                      {pick.home_team} vs {pick.away_team}
+                      {pick.team}{" "}
+                      {pick.americanOdds && (
+                        <span className="ml-1 text-xs text-gray-500">
+                          ({pick.americanOdds > 0 ? "+" : ""}
+                          {pick.americanOdds})
+                        </span>
+                      )}
                     </span>
                     <button
                       onClick={() => removePick(pick.id)}
@@ -193,40 +267,46 @@ export default function App() {
                 ))}
               </ul>
             )}
-          </aside>
 
-          {/* Parlay Calculator */}
-          <div className="rounded-2xl border border-white/30 dark:border-gray-700 bg-white/60 dark:bg-gray-800/50 backdrop-blur p-6 shadow-lg hover:shadow-xl transition-all">
-            <h2 className="text-2xl font-bold mb-6 text-gray-900 dark:text-gray-100 border-b border-gray-300 dark:border-gray-700 pb-3">
-              Parlay Calculator
-            </h2>
-            <p className="text-gray-600 dark:text-gray-300 text-sm mb-4">
-              Enter your wager to estimate potential payout.
-            </p>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Wager Amount ($)
-                </label>
-                <input
-                  type="number"
-                  className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white/80 dark:bg-gray-700/80 text-gray-900 dark:text-gray-100 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  placeholder="Enter amount"
-                />
-              </div>
-              <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-                <p className="text-gray-700 dark:text-gray-200">
-                  Total Picks: <span className="font-semibold">{picks.length}</span>
-                </p>
-                <p className="text-gray-700 dark:text-gray-200">
-                  Combined Odds: <span className="font-semibold">–</span>
-                </p>
-                <p className="text-gray-900 dark:text-white text-lg font-bold mt-3">
-                  Estimated Payout: –
-                </p>
+            {/* Parlay Calculator */}
+            <div className="mt-8 rounded-2xl border border-white/30 dark:border-gray-700 bg-white/60 dark:bg-gray-800/50 backdrop-blur p-6 shadow-lg hover:shadow-xl transition-all">
+              <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-gray-100 border-b border-gray-300 dark:border-gray-700 pb-2">
+                Parlay Calculator
+              </h2>
+              <p className="text-gray-600 dark:text-gray-300 mb-3 text-sm">
+                Enter your wager to estimate potential payout.
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+                    Wager Amount ($)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={wager}
+                    onChange={(e) => setWager(Number(e.target.value))}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-transparent text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+
+                <div className="text-sm text-gray-700 dark:text-gray-300 mt-4 space-y-1">
+                  <p>
+                    <strong>Total Picks:</strong> {picks.length}
+                  </p>
+                  <p>
+                    <strong>Combined Odds:</strong>{" "}
+                    {picks.length > 0 ? combinedOdds.toFixed(2) : "–"}
+                  </p>
+                  <p>
+                    <strong>Estimated Payout:</strong>{" "}
+                    {picks.length > 0 ? `$${payout.toFixed(2)}` : "–"}
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          </aside>
         </div>
       </main>
     </div>
