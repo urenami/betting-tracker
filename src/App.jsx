@@ -115,10 +115,11 @@ export default function App() {
       const start = new Date(game.commence_time);
 
       // MLB, NBA, NHL → only next 2 days
-      if (
-        ["baseball_mlb", "basketball_nba", "icehockey_nhl"].includes(sport)
-      ) {
-        return start >= now && start <= twoDaysAhead;
+      if (["baseball_mlb", "basketball_nba", "icehockey_nhl"].includes(sport)) {
+        // include games that started up to 6 hours ago (for ongoing ones)
+        const sixHoursAgo = new Date();
+        sixHoursAgo.setHours(now.getHours() - 6);
+        return start >= sixHoursAgo && start <= twoDaysAhead;
       }
 
       // NFL → show next 7 days (weekly)
@@ -236,7 +237,9 @@ export default function App() {
                                 ? "bg-green-600 text-white cursor-default"
                                 : "bg-indigo-600 text-white hover:bg-indigo-700"
                             } ${
-                              price == null ? "opacity-50 cursor-not-allowed" : ""
+                              price == null
+                                ? "opacity-50 cursor-not-allowed"
+                                : ""
                             }`}
                             title={price == null ? "No odds available yet" : ""}
                           >
@@ -267,11 +270,14 @@ export default function App() {
                             "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-200"
                           }`}
                         >
-                          <span className="font-semibold text-sm">{b.title}</span>
+                          <span className="font-semibold text-sm">
+                            {b.title}
+                          </span>
                           <div className="flex gap-4 text-sm font-medium mt-1 sm:mt-0">
                             {outcomes.map((o) => (
                               <span key={o.name}>
-                                {o.name}: {o.price > 0 ? `+${o.price}` : o.price}
+                                {o.name}:{" "}
+                                {o.price > 0 ? `+${o.price}` : o.price}
                               </span>
                             ))}
                           </div>
