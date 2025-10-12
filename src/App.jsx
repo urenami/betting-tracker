@@ -1,18 +1,32 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { FiMenu, FiX } from "react-icons/fi";
+
+// helper: odds conversions
+const americanToDecimal = (o) => (o > 0 ? o / 100 + 1 : 100 / Math.abs(o) + 1);
+const decimalToAmerican = (d) => {
+  const implied = d - 1;
+  return implied >= 1 ? Math.round(implied * 100) : -Math.round(100 / implied);
+};
+
+// preferred books + colors
+const PREFERRED = ["draftkings", "fanduel", "betmgm"];
+const bookColor = {
+  draftkings:
+    "bg-green-100 dark:bg-green-900/40 text-green-900 dark:text-green-200",
+  fanduel: "bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200",
+  betmgm:
+    "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-900 dark:text-yellow-200",
+};
 
 export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sport, setSport] = useState("baseball_mlb");
-  const [picks, setPicks] = useState(() => {
-    const saved = localStorage.getItem("myPicks");
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [picks, setPicks] = useState(() =>
+    JSON.parse(localStorage.getItem("myPicks") || "[]")
+  );
   const [wager, setWager] = useState(10);
-  const [combinedOdds, setCombinedOdds] = useState(0);
-  const [payout, setPayout] = useState(0);
 
   const sports = [
     { key: "baseball_mlb", label: "MLB" },
@@ -21,85 +35,122 @@ export default function App() {
     { key: "icehockey_nhl", label: "NHL" },
   ];
 
-  // Fetch Odds from API
+  // fetch odds
   useEffect(() => {
-    const fetchOdds = async () => {
+    (async () => {
       setLoading(true);
       try {
-        const response = await fetch(
+        const res = await fetch(
           `https://api.the-odds-api.com/v4/sports/${sport}/odds/?regions=us&markets=h2h&apiKey=${
             import.meta.env.VITE_ODDS_API_KEY
           }`
         );
-        const data = await response.json();
+        const data = await res.json();
         setGames(Array.isArray(data) ? data : []);
-      } catch (error) {
-        console.error("Error fetching odds:", error);
+      } catch {
         setGames([]);
       } finally {
         setLoading(false);
       }
-    };
-    fetchOdds();
+    })();
   }, [sport]);
 
-  // Save Picks to Local Storage
   useEffect(() => {
     localStorage.setItem("myPicks", JSON.stringify(picks));
   }, [picks]);
 
-  // Add Pick (team-based)
-  const addPick = (pick) => {
-    if (picks.some((p) => p.id === pick.id && p.team === pick.team)) return;
-    setPicks([...picks, pick]);
-  };
-
-  // Remove Pick
-  const removePick = (id) => {
-    setPicks(picks.filter((p) => p.id !== id));
-  };
-
-  // Calculate Parlay Odds & Payout
-  useEffect(() => {
-    if (picks.length === 0) {
-      setCombinedOdds(0);
-      setPayout(0);
-      return;
+  // helpers
+  const findBestAmerican = (game, teamName) => {
+    let best = null;
+    for (const b of game.bookmakers || []) {
+      if (!PREFERRED.includes(b.key)) continue;
+      const outcomes = b.markets?.find((m) => m.key === "h2h")?.outcomes || [];
+      const o = outcomes.find((x) => x.name === teamName);
+      if (!o?.price && o?.price !== 0) continue;
+      if (best === null || o.price > best) best = o.price;
     }
+    return best;
+  };
 
-    const oddsArray = picks.map((p) => p.decimalOdds || 1);
-    const totalOdds = oddsArray.reduce((acc, odd) => acc * odd, 1);
-    const estimated = wager * totalOdds;
+  const isPicked = (gameId, team) =>
+    picks.some((p) => p.id === `${gameId}-${team}`);
 
-    setCombinedOdds(totalOdds);
-    setPayout(estimated);
-  }, [picks, wager]);
+  const addPick = (game, team) => {
+    if (isPicked(game.id, team)) return;
+    const american = findBestAmerican(game, team);
+    if (american == null) return;
+    setPicks([
+      ...picks,
+      {
+        id: `${game.id}-${team}`,
+        team,
+        opponent: team === game.home_team ? game.away_team : game.home_team,
+        sport: game.sport_title,
+        americanOdds: american,
+        decimalOdds: americanToDecimal(american),
+      },
+    ]);
+  };
+
+  const removePick = (id) => setPicks(picks.filter((p) => p.id !== id));
+
+  // parlay math
+  const combinedDecimal =
+    picks.length === 0
+      ? 0
+      : picks.map((p) => p.decimalOdds).reduce((a, b) => a * b, 1);
+  const combinedAmerican =
+    picks.length === 0 ? 0 : decimalToAmerican(combinedDecimal);
+  const payout = picks.length === 0 ? 0 : wager * combinedDecimal;
+
+  // smart filter by sport
+  const now = new Date();
+  const twoDaysAhead = new Date();
+  twoDaysAhead.setDate(now.getDate() + 2);
+  const sevenDaysAhead = new Date();
+  sevenDaysAhead.setDate(now.getDate() + 7);
+
+  const filteredGames = games
+    .filter((game) => {
+      const start = new Date(game.commence_time);
+
+      // MLB, NBA, NHL → only next 2 days
+      if (
+        ["baseball_mlb", "basketball_nba", "icehockey_nhl"].includes(sport)
+      ) {
+        return start >= now && start <= twoDaysAhead;
+      }
+
+      // NFL → show next 7 days (weekly)
+      if (sport === "americanfootball_nfl") {
+        return start >= now && start <= sevenDaysAhead;
+      }
+
+      return true;
+    })
+    .sort(
+      (a, b) =>
+        new Date(a.commence_time).getTime() -
+        new Date(b.commence_time).getTime()
+    );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors">
+    <div className="min-h-screen bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-gray-300/70 dark:border-gray-700/70 bg-white/90 dark:bg-gray-800/90 backdrop-blur">
-        <div className="relative max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-4 md:py-5 flex items-center justify-between">
-          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-gray-900 dark:text-white">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+          <h1 className="text-2xl md:text-3xl font-extrabold">
             <span className="bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent">
               Betting Tracker
             </span>
           </h1>
-
-          {/* Desktop Nav */}
-          <nav className="hidden md:flex items-center gap-6">
-            {["Dashboard", "My Picks", "Parlay Builder"].map((item) => (
-              <a
-                key={item}
-                href="#"
-                className="text-gray-700 dark:text-gray-200 hover:text-indigo-500 font-medium"
-              >
-                {item}
+          <nav className="hidden md:flex gap-6 text-gray-700 dark:text-gray-200">
+            {["Dashboard", "My Picks", "Parlay Builder"].map((i) => (
+              <a key={i} href="#" className="hover:text-indigo-500">
+                {i}
               </a>
             ))}
           </nav>
-
-          {/* Mobile Toggle */}
           <button
             className="md:hidden text-gray-700 dark:text-gray-200"
             onClick={() => setMenuOpen((v) => !v)}
@@ -107,159 +158,159 @@ export default function App() {
           >
             {menuOpen ? <FiX size={24} /> : <FiMenu size={24} />}
           </button>
-
-          {/* Mobile Dropdown */}
-          {menuOpen && (
-            <div className="absolute left-0 right-0 top-full md:hidden bg-white/95 dark:bg-gray-800/95 border-t border-gray-200 dark:border-gray-700 shadow-md">
-              <div className="px-4 py-3 space-y-2">
-                {["Dashboard", "My Picks", "Parlay Builder"].map((item) => (
-                  <a
-                    key={item}
-                    href="#"
-                    className="block text-gray-700 dark:text-gray-200 hover:text-indigo-500 font-medium"
-                  >
-                    {item}
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </header>
 
       {/* Main */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12 pt-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {/* Upcoming Games */}
-          <section className="col-span-2 rounded-2xl border border-white/30 dark:border-gray-700 bg-white/60 dark:bg-gray-800/50 backdrop-blur p-6 shadow-lg hover:shadow-xl transition-all">
-            <h2 className="text-2xl font-bold mb-6 text-gray-900 dark:text-gray-100 border-b border-gray-300 dark:border-gray-700 pb-3">
-              Upcoming Games
-            </h2>
+      <main className="max-w-7xl mx-auto px-4 pb-12 pt-6 grid grid-cols-1 md:grid-cols-3 gap-8">
+        {/* Games */}
+        <section className="col-span-2 rounded-2xl border border-white/30 dark:border-gray-700 bg-white/60 dark:bg-gray-800/50 backdrop-blur p-6 shadow-lg">
+          <h2 className="text-2xl font-bold mb-6 border-b pb-3 text-gray-900 dark:text-gray-100">
+            Upcoming Games
+          </h2>
 
-            {/* Sport Filter */}
-            <div className="flex flex-wrap gap-3 mb-6 mt-4">
-              {sports.map(({ key, label }) => (
-                <button
-                  key={key}
-                  onClick={() => setSport(key)}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-transform ${
-                    sport === key
-                      ? "bg-indigo-600 text-white shadow-md"
-                      : "bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 hover:bg-indigo-500 hover:text-white"
-                  } hover:scale-105 active:scale-95`}
+          {/* sport filter */}
+          <div className="flex flex-wrap gap-3 mb-6">
+            {sports.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setSport(key)}
+                className={`px-4 py-2 rounded-full text-sm font-medium ${
+                  sport === key
+                    ? "bg-indigo-600 text-white"
+                    : "bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* list */}
+          {loading ? (
+            <p className="text-gray-600 dark:text-gray-300">Loading…</p>
+          ) : filteredGames.length === 0 ? (
+            <p className="text-gray-600 dark:text-gray-300">No games found.</p>
+          ) : (
+            filteredGames.map((game) => {
+              const startTime = new Date(game.commence_time);
+              const formatted = startTime.toLocaleString("en-US", {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              });
+
+              return (
+                <div
+                  key={game.id}
+                  className="p-4 bg-white/70 dark:bg-gray-700/70 rounded-xl shadow mb-4 space-y-3"
                 >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {/* Games List */}
-            {loading ? (
-              <p className="text-gray-600 dark:text-gray-300">
-                Loading {sports.find((s) => s.key === sport)?.label} odds...
-              </p>
-            ) : (
-              <div className="space-y-4">
-                {games.length === 0 ? (
-                  <p className="text-gray-600 dark:text-gray-300">
-                    No games found for{" "}
-                    {sports.find((s) => s.key === sport)?.label}.
-                  </p>
-                ) : (
-                  games.map((game) => (
-                    <div
-                      key={game.id}
-                      className="p-4 bg-white/70 dark:bg-gray-700/70 rounded-xl shadow hover:shadow-lg transition-transform hover:scale-[1.02]"
-                    >
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="font-semibold text-gray-900 dark:text-gray-100">
-                            {game.home_team} vs {game.away_team}
-                          </p>
-                          <p className="text-sm text-gray-600 dark:text-gray-300">
-                            {game.sport_title}
-                          </p>
-                        </div>
-
-                        {/* Add Pick Buttons for Home/Away */}
-                        <div className="flex gap-3">
-                          {["home_team", "away_team"].map((teamKey) => {
-                            const teamName = game[teamKey];
-                            const market =
-                              game.bookmakers?.[0]?.markets?.[0];
-                            const outcome = market?.outcomes?.find(
-                              (o) => o.name === teamName
-                            );
-                            const odds = outcome?.price;
-                            const decimalOdds =
-                              odds > 0
-                                ? odds / 100 + 1
-                                : 100 / Math.abs(odds) + 1;
-
-                            return (
-                              <button
-                                key={teamKey}
-                                onClick={() =>
-                                  addPick({
-                                    id: `${game.id}-${teamKey}`,
-                                    team: teamName,
-                                    americanOdds: odds,
-                                    decimalOdds,
-                                    sport: game.sport_title,
-                                  })
-                                }
-                                className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-transform hover:scale-105 active:scale-95 text-sm font-medium"
-                              >
-                                {teamName}{" "}
-                                {odds ? (
-                                  <span className="text-xs text-gray-200 ml-1">
-                                    ({odds > 0 ? `+${odds}` : odds})
-                                  </span>
-                                ) : (
-                                  <span className="text-xs text-gray-300 ml-1">
-                                    N/A
-                                  </span>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
+                  {/* teams + time */}
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-semibold text-gray-900 dark:text-gray-100">
+                        {game.home_team} vs {game.away_team}
+                      </p>
+                      <p className="text-sm text-gray-600 dark:text-gray-300">
+                        {game.sport_title}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {formatted}
+                      </p>
                     </div>
-                  ))
-                )}
-              </div>
-            )}
-          </section>
 
-          {/* Sidebar: My Picks + Calculator */}
-          <aside className="rounded-2xl border border-white/30 dark:border-gray-700 bg-white/60 dark:bg-gray-800/50 backdrop-blur p-6 shadow-lg hover:shadow-xl transition-all">
-            <h2 className="text-2xl font-bold mb-6 text-gray-900 dark:text-gray-100 border-b border-gray-300 dark:border-gray-700 pb-3">
+                    {/* pick buttons */}
+                    <div className="flex gap-2">
+                      {[game.home_team, game.away_team].map((team) => {
+                        const price = findBestAmerican(game, team);
+                        const picked = isPicked(game.id, team);
+                        return (
+                          <button
+                            key={team}
+                            disabled={price == null}
+                            onClick={() => addPick(game, team)}
+                            className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                              picked
+                                ? "bg-green-600 text-white cursor-default"
+                                : "bg-indigo-600 text-white hover:bg-indigo-700"
+                            } ${
+                              price == null ? "opacity-50 cursor-not-allowed" : ""
+                            }`}
+                            title={price == null ? "No odds available yet" : ""}
+                          >
+                            {picked ? "✓ Added" : team}
+                            {price != null && (
+                              <span className="ml-1 text-xs opacity-90">
+                                ({price > 0 ? `+${price}` : price})
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* odds by sportsbook */}
+                  {(game.bookmakers || [])
+                    .filter((b) => PREFERRED.includes(b.key))
+                    .slice(0, 3)
+                    .map((b) => {
+                      const outcomes =
+                        b.markets?.find((m) => m.key === "h2h")?.outcomes || [];
+                      return (
+                        <div
+                          key={b.key}
+                          className={`flex flex-col sm:flex-row sm:items-center sm:justify-between px-4 py-2 rounded-lg ${
+                            bookColor[b.key] ||
+                            "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-200"
+                          }`}
+                        >
+                          <span className="font-semibold text-sm">{b.title}</span>
+                          <div className="flex gap-4 text-sm font-medium mt-1 sm:mt-0">
+                            {outcomes.map((o) => (
+                              <span key={o.name}>
+                                {o.name}: {o.price > 0 ? `+${o.price}` : o.price}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              );
+            })
+          )}
+        </section>
+
+        {/* Picks + Calculator */}
+        <aside className="rounded-2xl border border-white/30 dark:border-gray-700 bg-white/60 dark:bg-gray-800/50 backdrop-blur p-6 shadow-lg space-y-6">
+          <div>
+            <h2 className="text-2xl font-bold mb-4 border-b pb-3 text-gray-900 dark:text-gray-100">
               My Picks
             </h2>
             {picks.length === 0 ? (
               <p className="text-gray-600 dark:text-gray-300">
-                No picks yet — select a team from the list!
+                No picks yet — choose a team above.
               </p>
             ) : (
-              <ul className="space-y-3">
-                {picks.map((pick) => (
+              <ul className="space-y-2">
+                {picks.map((p) => (
                   <li
-                    key={pick.id}
-                    className="flex justify-between items-center bg-white/70 dark:bg-gray-700/70 px-3 py-2 rounded-lg shadow hover:shadow-lg transition-transform hover:scale-[1.02]"
+                    key={p.id}
+                    className="flex justify-between items-center bg-white/70 dark:bg-gray-700/70 px-3 py-2 rounded-lg"
                   >
-                    <span className="text-gray-900 dark:text-gray-100 text-sm font-medium">
-                      {pick.team}{" "}
-                      {pick.americanOdds && (
-                        <span className="ml-1 text-xs text-gray-500">
-                          ({pick.americanOdds > 0 ? "+" : ""}
-                          {pick.americanOdds})
-                        </span>
-                      )}
+                    <span className="text-sm">
+                      {p.team}{" "}
+                      <span className="text-xs text-gray-500">
+                        ({p.americanOdds > 0 ? "+" : ""}
+                        {p.americanOdds})
+                      </span>
                     </span>
                     <button
-                      onClick={() => removePick(pick.id)}
-                      className="text-red-500 hover:text-red-700 text-sm font-semibold transition-transform hover:scale-105 active:scale-95"
+                      onClick={() => removePick(p.id)}
+                      className="text-red-500 hover:text-red-700 text-sm font-semibold"
                     >
                       Remove Pick
                     </button>
@@ -267,47 +318,41 @@ export default function App() {
                 ))}
               </ul>
             )}
+          </div>
 
-            {/* Parlay Calculator */}
-            <div className="mt-8 rounded-2xl border border-white/30 dark:border-gray-700 bg-white/60 dark:bg-gray-800/50 backdrop-blur p-6 shadow-lg hover:shadow-xl transition-all">
-              <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-gray-100 border-b border-gray-300 dark:border-gray-700 pb-2">
-                Parlay Calculator
-              </h2>
-              <p className="text-gray-600 dark:text-gray-300 mb-3 text-sm">
-                Enter your wager to estimate potential payout.
+          <div className="rounded-2xl border border-white/30 dark:border-gray-700 p-4">
+            <h3 className="text-xl font-bold mb-3 text-gray-900 dark:text-gray-100">
+              Parlay Calculator
+            </h3>
+            <label className="block text-sm mb-1 text-gray-700 dark:text-gray-300">
+              Wager Amount ($)
+            </label>
+            <input
+              type="number"
+              min="1"
+              value={wager}
+              onChange={(e) => setWager(Number(e.target.value))}
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-transparent text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none mb-3"
+            />
+            <div className="text-sm text-gray-700 dark:text-gray-300 space-y-1">
+              <p>
+                <strong>Total Picks:</strong> {picks.length}
               </p>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
-                    Wager Amount ($)
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={wager}
-                    onChange={(e) => setWager(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-transparent text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 outline-none"
-                  />
-                </div>
-
-                <div className="text-sm text-gray-700 dark:text-gray-300 mt-4 space-y-1">
-                  <p>
-                    <strong>Total Picks:</strong> {picks.length}
-                  </p>
-                  <p>
-                    <strong>Combined Odds:</strong>{" "}
-                    {picks.length > 0 ? combinedOdds.toFixed(2) : "–"}
-                  </p>
-                  <p>
-                    <strong>Estimated Payout:</strong>{" "}
-                    {picks.length > 0 ? `$${payout.toFixed(2)}` : "–"}
-                  </p>
-                </div>
-              </div>
+              <p>
+                <strong>Combined Odds:</strong>{" "}
+                {picks.length
+                  ? `${combinedDecimal.toFixed(2)} (Dec), ${
+                      combinedAmerican > 0 ? "+" : ""
+                    }${combinedAmerican} (US)`
+                  : "–"}
+              </p>
+              <p>
+                <strong>Estimated Payout:</strong>{" "}
+                {picks.length ? `$${payout.toFixed(2)}` : "–"}
+              </p>
             </div>
-          </aside>
-        </div>
+          </div>
+        </aside>
       </main>
     </div>
   );
