@@ -1,13 +1,6 @@
 import { useEffect, useState } from "react";
 import { FiMenu, FiX } from "react-icons/fi";
 
-// helper: odds conversions
-const americanToDecimal = (o) => (o > 0 ? o / 100 + 1 : 100 / Math.abs(o) + 1);
-const decimalToAmerican = (d) => {
-  const implied = d - 1;
-  return implied >= 1 ? Math.round(implied * 100) : -Math.round(100 / implied);
-};
-
 // preferred books + colors
 const PREFERRED = ["draftkings", "fanduel", "betmgm"];
 const bookColor = {
@@ -17,6 +10,11 @@ const bookColor = {
   betmgm:
     "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-900 dark:text-yellow-200",
 };
+
+// helper: convert american ↔ decimal
+const americanToDecimal = (o) => (o > 0 ? o / 100 + 1 : 100 / Math.abs(o) + 1);
+const decimalToAmerican = (d) =>
+  d >= 2 ? Math.round((d - 1) * 100) : -Math.round(100 / (d - 1));
 
 export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -35,7 +33,7 @@ export default function App() {
     { key: "icehockey_nhl", label: "NHL" },
   ];
 
-  // fetch odds
+  // Fetch odds
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -59,7 +57,7 @@ export default function App() {
     localStorage.setItem("myPicks", JSON.stringify(picks));
   }, [picks]);
 
-  // helpers
+  // Helpers
   const findBestAmerican = (game, teamName) => {
     let best = null;
     for (const b of game.bookmakers || []) {
@@ -67,7 +65,11 @@ export default function App() {
       const outcomes = b.markets?.find((m) => m.key === "h2h")?.outcomes || [];
       const o = outcomes.find((x) => x.name === teamName);
       if (!o?.price && o?.price !== 0) continue;
-      if (best === null || o.price > best) best = o.price;
+      const odds =
+        Math.abs(o.price) < 10
+          ? decimalToAmerican(o.price)
+          : Math.round(o.price);
+      if (best === null || odds > best) best = odds;
     }
     return best;
   };
@@ -103,30 +105,25 @@ export default function App() {
     picks.length === 0 ? 0 : decimalToAmerican(combinedDecimal);
   const payout = picks.length === 0 ? 0 : wager * combinedDecimal;
 
-  // smart filter by sport
+  // smart filtering by sport/time
   const now = new Date();
-  const twoDaysAhead = new Date();
+  const twoDaysAhead = new Date(now);
   twoDaysAhead.setDate(now.getDate() + 2);
-  const sevenDaysAhead = new Date();
+  const sevenDaysAhead = new Date(now);
   sevenDaysAhead.setDate(now.getDate() + 7);
 
   const filteredGames = games
     .filter((game) => {
       const start = new Date(game.commence_time);
+      const sixHoursAgo = new Date(now);
+      sixHoursAgo.setHours(now.getHours() - 6);
 
-      // MLB, NBA, NHL → only next 2 days
       if (["baseball_mlb", "basketball_nba", "icehockey_nhl"].includes(sport)) {
-        // include games that started up to 6 hours ago (for ongoing ones)
-        const sixHoursAgo = new Date();
-        sixHoursAgo.setHours(now.getHours() - 6);
         return start >= sixHoursAgo && start <= twoDaysAhead;
       }
-
-      // NFL → show next 7 days (weekly)
       if (sport === "americanfootball_nfl") {
         return start >= now && start <= sevenDaysAhead;
       }
-
       return true;
     })
     .sort(
@@ -135,6 +132,7 @@ export default function App() {
         new Date(b.commence_time).getTime()
     );
 
+  // render
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-100 via-gray-200 to-gray-300 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
       {/* Header */}
@@ -187,7 +185,7 @@ export default function App() {
             ))}
           </div>
 
-          {/* list */}
+          {/* Games List */}
           {loading ? (
             <p className="text-gray-600 dark:text-gray-300">Loading…</p>
           ) : filteredGames.length === 0 ? (
@@ -241,7 +239,6 @@ export default function App() {
                                 ? "opacity-50 cursor-not-allowed"
                                 : ""
                             }`}
-                            title={price == null ? "No odds available yet" : ""}
                           >
                             {picked ? "✓ Added" : team}
                             {price != null && (
@@ -255,31 +252,75 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* odds by sportsbook */}
+                  {/* sportsbook odds responsive */}
                   {(game.bookmakers || [])
                     .filter((b) => PREFERRED.includes(b.key))
                     .slice(0, 3)
                     .map((b) => {
                       const outcomes =
                         b.markets?.find((m) => m.key === "h2h")?.outcomes || [];
+
+                      const normalizeOdds = (price) => {
+                        if (price == null) return null;
+                        if (Math.abs(price) < 10) {
+                          const dec = price;
+                          const am =
+                            dec >= 2
+                              ? Math.round((dec - 1) * 100)
+                              : -Math.round(100 / (dec - 1));
+                          const prob = (1 / dec) * 100;
+                          return { am, prob };
+                        } else {
+                          const am = Math.round(price);
+                          const prob =
+                            am > 0
+                              ? (100 / (am + 100)) * 100
+                              : (Math.abs(am) / (Math.abs(am) + 100)) * 100;
+                          return { am, prob };
+                        }
+                      };
+
+                      const getColor = (a) =>
+                        a > 0
+                          ? "text-green-600 dark:text-green-400"
+                          : "text-red-600 dark:text-red-400";
+
                       return (
                         <div
                           key={b.key}
-                          className={`flex flex-col sm:flex-row sm:items-center sm:justify-between px-4 py-2 rounded-lg ${
+                          className={`px-4 py-3 rounded-xl mb-3 ${
                             bookColor[b.key] ||
                             "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-200"
                           }`}
                         >
-                          <span className="font-semibold text-sm">
-                            {b.title}
-                          </span>
-                          <div className="flex gap-4 text-sm font-medium mt-1 sm:mt-0">
-                            {outcomes.map((o) => (
-                              <span key={o.name}>
-                                {o.name}:{" "}
-                                {o.price > 0 ? `+${o.price}` : o.price}
-                              </span>
-                            ))}
+                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                            <span className="font-semibold text-sm whitespace-nowrap">
+                              {b.title}
+                            </span>
+                            <div className="flex flex-col sm:flex-wrap sm:flex-row sm:gap-x-6 sm:gap-y-1 mt-1 text-sm font-medium leading-snug">
+                              {outcomes.map((o) => {
+                                const n = normalizeOdds(o.price);
+                                if (!n) return null;
+                                return (
+                                  <span
+                                    key={o.name}
+                                    className={`flex flex-wrap items-center gap-1 ${getColor(
+                                      n.am
+                                    )}`}
+                                  >
+                                    <span className="font-semibold">
+                                      {o.name}
+                                    </span>
+                                    <span className="font-bold">
+                                      {n.am > 0 ? `+${n.am}` : n.am}
+                                    </span>
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                      ({Math.round(n.prob)}% win chance)
+                                    </span>
+                                  </span>
+                                );
+                              })}
+                            </div>
                           </div>
                         </div>
                       );
